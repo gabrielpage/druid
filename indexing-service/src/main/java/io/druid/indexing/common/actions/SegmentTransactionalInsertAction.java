@@ -98,7 +98,7 @@ public class SegmentTransactionalInsertAction implements TaskAction<SegmentPubli
   @Override
   public SegmentPublishResult perform(Task task, TaskActionToolbox toolbox) throws IOException
   {
-    toolbox.verifyTaskLocks(task, segments);
+    //toolbox.verifyTaskLocks(task, segments);
 
     final SegmentPublishResult retVal = toolbox.getIndexerMetadataStorageCoordinator().announceHistoricalSegments(
         segments,

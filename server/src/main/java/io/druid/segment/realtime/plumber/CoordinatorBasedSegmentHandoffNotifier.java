@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -65,7 +66,7 @@ public class CoordinatorBasedSegmentHandoffNotifier implements SegmentHandoffNot
       SegmentDescriptor descriptor, Executor exec, Runnable handOffRunnable
   )
   {
-    log.info("Adding SegmentHandoffCallback for dataSource[%s] Segment[%s]", dataSource, descriptor);
+    log.info("Adding SegmentHandoffCallback for dataSource [%s] Segment [%s]", dataSource, descriptor);
     Pair<Executor, Runnable> prev = handOffCallbacks.putIfAbsent(
         descriptor,
         new Pair<>(exec, handOffRunnable)
@@ -76,14 +77,15 @@ public class CoordinatorBasedSegmentHandoffNotifier implements SegmentHandoffNot
   @Override
   public void start()
   {
-    scheduledExecutor = Execs.scheduledSingleThreaded("coordinator_handoff_scheduled_%d");
-    scheduledExecutor.scheduleAtFixedRate(
+	log.info("Start [%s] [%d]", dataSource, pollDurationMillis);
+	scheduledExecutor = Execs.scheduledSingleThreaded("coordinator_handoff_scheduled_%d");
+	scheduledExecutor.scheduleAtFixedRate(
         new Runnable()
         {
           @Override
           public void run()
           {
-            checkForSegmentHandoffs();
+        	checkForSegmentHandoffs();
           }
         }, 0L, pollDurationMillis, TimeUnit.MILLISECONDS
     );
@@ -108,6 +110,8 @@ public class CoordinatorBasedSegmentHandoffNotifier implements SegmentHandoffNot
             log.info("Segment Handoff complete for dataSource[%s] Segment[%s]", dataSource, descriptor);
             entry.getValue().lhs.execute(entry.getValue().rhs);
             itr.remove();
+          } else {
+        	  log.info("Segment Handoff incomplete for dataSource[%s] Segment[%s]", dataSource, descriptor);
           }
         }
         catch (Exception e) {
@@ -158,7 +162,7 @@ public class CoordinatorBasedSegmentHandoffNotifier implements SegmentHandoffNot
     return false;
   }
 
-  @Override
+  
   public void close()
   {
     scheduledExecutor.shutdown();

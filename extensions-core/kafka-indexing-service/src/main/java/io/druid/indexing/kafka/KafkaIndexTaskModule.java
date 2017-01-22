@@ -19,16 +19,18 @@
 
 package io.druid.indexing.kafka;
 
+import java.util.List;
+
 import com.fasterxml.jackson.databind.Module;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Binder;
+
+import io.druid.indexing.kafka.gamesparks.GSInputRowParser;
 import io.druid.indexing.kafka.supervisor.KafkaSupervisorSpec;
 import io.druid.indexing.kafka.supervisor.KafkaSupervisorTuningConfig;
 import io.druid.initialization.DruidModule;
-
-import java.util.List;
 
 public class KafkaIndexTaskModule implements DruidModule
 {
@@ -42,7 +44,8 @@ public class KafkaIndexTaskModule implements DruidModule
                 new NamedType(KafkaDataSourceMetadata.class, "kafka"),
                 new NamedType(KafkaIOConfig.class, "kafka"),
                 new NamedType(KafkaSupervisorTuningConfig.class, "kafka"),
-                new NamedType(KafkaSupervisorSpec.class, "kafka")
+                new NamedType(KafkaSupervisorSpec.class, "kafka"),
+                new NamedType(GSInputRowParser.class, "gamesparks-parser")
             )
     );
   }

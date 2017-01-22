@@ -35,10 +35,15 @@ import io.druid.indexing.common.task.Task;
 import io.druid.indexing.overlord.IndexerMetadataStorageCoordinator;
 import io.druid.segment.realtime.appenderator.SegmentIdentifier;
 import io.druid.timeline.DataSegment;
+import net.sf.cglib.proxy.Enhancer;
+import net.sf.cglib.proxy.MethodInterceptor;
+import net.sf.cglib.proxy.MethodProxy;
+
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -161,12 +166,34 @@ public class SegmentAllocateAction implements TaskAction<SegmentIdentifier>
       final TaskActionToolbox toolbox
   ) throws IOException
   {
+	  SegmentIdentifier ret = performInternal(task, toolbox);
+	  log.info("AllocatedSegment SegmentIdentifier [%s] \n si.ds = [%s] \n my.ds = [%s]", ret, ret.getDataSource(), dataSource);
+	  return ret;
+  }
+  
+  public SegmentIdentifier performInternal(
+      Task task,
+      final TaskActionToolbox toolbox
+  ) throws IOException
+  {
+	  log.info("Performing [%s]", task);
     int attempt = 0;
     while (true) {
       attempt++;
 
       if (!task.getDataSource().equals(dataSource)) {
-        throw new IAE("Task dataSource must match action dataSource, [%s] != [%s].", task.getDataSource(), dataSource);
+    	  final Task finalTask = task;
+    	  task = (Task) Enhancer.create(Task.class, new MethodInterceptor() {
+  			@Override
+  			public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy)
+  					throws Throwable {
+  				System.err.println(method.getName());
+  				if (method.getName().equals("getDataSource")) {
+  					return dataSource;
+  				}
+  				return method.invoke(finalTask, args);
+  			}
+  		});
       }
 
       final IndexerMetadataStorageCoordinator msc = toolbox.getIndexerMetadataStorageCoordinator();
@@ -182,7 +209,7 @@ public class SegmentAllocateAction implements TaskAction<SegmentIdentifier>
       );
 
       final Set<DataSegment> usedSegmentsForRow = ImmutableSet.copyOf(
-          msc.getUsedSegmentsForInterval(dataSource, rowInterval)
+          msc.getUsedSegmentsForInterval(getDataSource(), rowInterval)
       );
 
       if (usedSegmentsForRow.isEmpty()) {
@@ -206,7 +233,7 @@ public class SegmentAllocateAction implements TaskAction<SegmentIdentifier>
           final TaskLock tryLock = toolbox.getTaskLockbox().tryLock(task, tryInterval).orNull();
           if (tryLock != null) {
             final SegmentIdentifier identifier = msc.allocatePendingSegment(
-                dataSource,
+            		getDataSource(),
                 sequenceName,
                 previousSegmentId,
                 tryInterval,
@@ -231,7 +258,7 @@ public class SegmentAllocateAction implements TaskAction<SegmentIdentifier>
       // overlapping with this row between when we called "mdc.getUsedSegmentsForInterval" and now. Check it again,
       // and if it's different, repeat.
 
-      if (!ImmutableSet.copyOf(msc.getUsedSegmentsForInterval(dataSource, rowInterval)).equals(usedSegmentsForRow)) {
+      if (!ImmutableSet.copyOf(msc.getUsedSegmentsForInterval(getDataSource(), rowInterval)).equals(usedSegmentsForRow)) {
         if (attempt < MAX_ATTEMPTS) {
           final long shortRandomSleep = 50 + (long) (Math.random() * 450);
           log.debug(

@@ -1,3 +1,4 @@
+package io.druid.indexing.kafka;
 /*
  * Licensed to Metamarkets Group Inc. (Metamarkets) under one
  * or more contributor license agreements. See the NOTICE file
@@ -17,7 +18,37 @@
  * under the License.
  */
 
-package io.druid.indexing.kafka;
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetOutOfRangeException;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.joda.time.DateTime;
 
 import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -42,6 +73,7 @@ import com.metamx.common.ISE;
 import com.metamx.common.guava.Sequence;
 import com.metamx.common.logger.Logger;
 import com.metamx.common.parsers.ParseException;
+
 import io.druid.data.input.Committer;
 import io.druid.data.input.InputRow;
 import io.druid.data.input.impl.InputRowParser;
@@ -53,6 +85,8 @@ import io.druid.indexing.common.actions.SegmentTransactionalInsertAction;
 import io.druid.indexing.common.actions.TaskActionClient;
 import io.druid.indexing.common.task.AbstractTask;
 import io.druid.indexing.common.task.TaskResource;
+import io.druid.indexing.kafka.gamesparks.GSMetricAwareDataSchema;
+import io.druid.indexing.kafka.gamesparks.GSSharedAppenderatorDriver;
 import io.druid.query.DruidMetrics;
 import io.druid.query.NoopQueryRunner;
 import io.druid.query.Query;
@@ -71,36 +105,6 @@ import io.druid.segment.realtime.appenderator.TransactionalSegmentPublisher;
 import io.druid.segment.realtime.firehose.ChatHandler;
 import io.druid.segment.realtime.firehose.ChatHandlerProvider;
 import io.druid.timeline.DataSegment;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.consumer.OffsetOutOfRangeException;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.ByteArrayDeserializer;
-import org.joda.time.DateTime;
-
-import javax.ws.rs.Consumes;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.Response;
-import java.io.File;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Random;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class KafkaIndexTask extends AbstractTask implements ChatHandler
 {
@@ -162,7 +166,7 @@ public class KafkaIndexTask extends AbstractTask implements ChatHandler
   private final Condition hasPaused = pauseLock.newCondition();
   private final Condition shouldResume = pauseLock.newCondition();
 
-  // [pollRetryLock] and [isAwaitingRetry] is used when the Kafka consumer returns an OffsetOutOfRangeException and we
+  // [pollRetryLock] and [isAwaitingRetry] is used when the 4a consumer returns an OffsetOutOfRangeException and we
   // pause polling from Kafka for POLL_RETRY_MS before trying again. This allows us to signal the sleeping thread and
   // resume the main run loop in the case of a pause or stop request from a Jetty thread.
   private final Lock pollRetryLock = new ReentrantLock();
@@ -250,6 +254,7 @@ public class KafkaIndexTask extends AbstractTask implements ChatHandler
   @Override
   public TaskStatus run(final TaskToolbox toolbox) throws Exception
   {
+	  
     log.info("Starting up!");
     startTime = DateTime.now();
     mapper = toolbox.getObjectMapper();
@@ -826,10 +831,11 @@ public class KafkaIndexTask extends AbstractTask implements ChatHandler
 
   private Appenderator newAppenderator(FireDepartmentMetrics metrics, TaskToolbox toolbox)
   {
+	  
     final int maxRowsInMemoryPerPartition = (tuningConfig.getMaxRowsInMemory() /
                                              ioConfig.getStartPartitions().getPartitionOffsetMap().size());
     return Appenderators.createRealtime(
-        dataSchema,
+    		dataSchema,
         tuningConfig.withBasePersistDirectory(new File(toolbox.getTaskWorkDir(), "persist"))
                     .withMaxRowsInMemory(maxRowsInMemoryPerPartition),
         metrics,
@@ -851,15 +857,31 @@ public class KafkaIndexTask extends AbstractTask implements ChatHandler
       final TaskToolbox toolbox
   )
   {
-    return new FiniteAppenderatorDriver(
-        appenderator,
-        new ActionBasedSegmentAllocator(toolbox.getTaskActionClient(), dataSchema),
-        toolbox.getSegmentHandoffNotifierFactory(),
-        new ActionBasedUsedSegmentChecker(toolbox.getTaskActionClient()),
-        toolbox.getObjectMapper(),
-        tuningConfig.getMaxRowsPerSegment(),
-        tuningConfig.getHandoffConditionTimeout()
-    );
+	  
+	return new GSSharedAppenderatorDriver(
+			appenderator,
+	        new ActionBasedSegmentAllocator(toolbox.getTaskActionClient(), dataSchema),
+	        toolbox.getSegmentHandoffNotifierFactory(),
+	        new ActionBasedUsedSegmentChecker(toolbox.getTaskActionClient()),
+	        toolbox.getObjectMapper(),
+	        tuningConfig.getMaxRowsPerSegment(),
+	        tuningConfig.getHandoffConditionTimeout(), 
+	        dataSchema, 
+	        tuningConfig, 
+	        ioConfig, 
+	        fireDepartmentMetrics, 
+	        toolbox
+			);
+	  
+//    return new FiniteAppenderatorDriver(
+//        appenderator,
+//        new ActionBasedSegmentAllocator(toolbox.getTaskActionClient(), dataSchema),
+//        toolbox.getSegmentHandoffNotifierFactory(),
+//        new ActionBasedUsedSegmentChecker(toolbox.getTaskActionClient()),
+//        toolbox.getObjectMapper(),
+//        tuningConfig.getMaxRowsPerSegment(),
+//        tuningConfig.getHandoffConditionTimeout()
+//    );
   }
 
   private KafkaConsumer<byte[], byte[]> newConsumer()

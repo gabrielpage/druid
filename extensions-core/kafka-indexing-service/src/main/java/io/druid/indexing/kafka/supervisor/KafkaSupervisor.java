@@ -1372,9 +1372,9 @@ public class KafkaSupervisor implements Supervisor
     }
 
     if (useEarliestOffset) {
-      consumer.seekToBeginning(topicPartition);
+      consumer.seekToBeginning(Lists.newArrayList(topicPartition));
     } else {
-      consumer.seekToEnd(topicPartition);
+      consumer.seekToEnd(Lists.newArrayList(topicPartition));
     }
 
     return consumer.position(topicPartition);

@@ -20,31 +20,28 @@
 package io.druid.segment.realtime.plumber;
 
 import com.google.inject.Inject;
+import com.metamx.common.logger.Logger;
+
 import io.druid.client.coordinator.CoordinatorClient;
+import io.druid.segment.realtime.appenderator.FiniteAppenderatorDriver;
 
-public class CoordinatorBasedSegmentHandoffNotifierFactory implements SegmentHandoffNotifierFactory
-{
+public class CoordinatorBasedSegmentHandoffNotifierFactory implements SegmentHandoffNotifierFactory {
 
-  private final CoordinatorClient client;
-  private final CoordinatorBasedSegmentHandoffNotifierConfig config;
+	private static final Logger log = new Logger(CoordinatorBasedSegmentHandoffNotifierFactory.class);
 
-  @Inject
-  public CoordinatorBasedSegmentHandoffNotifierFactory(
-      CoordinatorClient client,
-      CoordinatorBasedSegmentHandoffNotifierConfig config
-  )
-  {
-    this.client = client;
-    this.config = config;
-  }
+	private final CoordinatorClient client;
+	private final CoordinatorBasedSegmentHandoffNotifierConfig config;
 
-  @Override
-  public SegmentHandoffNotifier createSegmentHandoffNotifier(String dataSource)
-  {
-    return new CoordinatorBasedSegmentHandoffNotifier(
-        dataSource,
-        client,
-        config
-    );
-  }
+	@Inject
+	public CoordinatorBasedSegmentHandoffNotifierFactory(CoordinatorClient client,
+			CoordinatorBasedSegmentHandoffNotifierConfig config) {
+		this.client = client;
+		this.config = config;
+	}
+
+	@Override
+	public SegmentHandoffNotifier createSegmentHandoffNotifier(String dataSource) {
+		log.info("Creating CoordinatorBasedSegmentHandoffNotifier [%s]", dataSource);
+		return new CoordinatorBasedSegmentHandoffNotifier(dataSource, client, config);
+	}
 }
